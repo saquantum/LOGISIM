@@ -1,0 +1,27 @@
+!(!(A*B*C)*C)
+A B C O
+0 0 0 1
+0 0 1 0
+0 1 0 1
+0 1 1 0
+1 0 0 1
+1 0 1 0
+1 1 0 1
+1 1 1 1
+
+AB\C 0 1
+00   1 0
+01   1 0
+11   1 1
+10   1 0
+
+!C+A*B
+
+
+// build xor gate by nand: using techniques to eliminate all or gate
+
+(!A+!B)*(A+B)
+=!(A*B)*(A+B)                        //(!A+!B) is a nand gate
+=!(A*B)*A+!(A*B)*B                   // distributivity
+=!!( !(A*B)*A ) + !!( !(A*B)*B )     // double negation
+=!( !( !(A*B)*A ) * !( !(A*B)*B ) )
