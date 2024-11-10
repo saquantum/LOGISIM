@@ -1,4 +1,7 @@
-
+// save current value in KBD to compare, if it's the same as before then goto end
+@savekey
+M=0
+(saisyo)
 @SCREEN
 D=A
 @nextpixel
@@ -9,10 +12,32 @@ D=A
 M=D
 @KBD
 D=M
+@savekey
+D=D-M
+@end
+D;JEQ
+@KBD
+D=M
+@savekey
+M=D
 @67
 D=D-A
-@branchc
+@branch
 D;JEQ
+@end
+0;JMP
+
+// use parity to decide which branch to go (odd or even)
+(branch)
+@parity
+M=M+1
+D=M
+@1
+D=D&A
+@start
+D;JGT
+@startc
+0;JMP
 
 (start)
 @linenumber
@@ -126,5 +151,5 @@ M=M+1
 0;JMP
 
 (end)
-@end
+@saisyo
 0;JMP
