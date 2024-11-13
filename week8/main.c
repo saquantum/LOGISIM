@@ -86,12 +86,12 @@ void lex_line(int *rom_address, SymbolTable *labels, const char *line, FILE *out
             pos++;
             continue;
         }
-        // ========================================
+        //=====================
         // INSERT CODE: If you see a comment, ignore the rest of the line.
         if(line[pos]=='/' && pos+1<(int)strlen(line) && line[pos+1]=='/'){
             break;
         }
-        // ========================================
+        //=====================
         // Add labels to the symbol table.
         if (line[pos] == '(') {
             lex_label(line+pos, *rom_address, labels);
@@ -108,9 +108,12 @@ void lex_line(int *rom_address, SymbolTable *labels, const char *line, FILE *out
     if (tokens_on_line) {
         // INSERT CODE: If the line you just lexed contained tokens (i.e. if it corresponds to a line of machine code),
         // lex the newline at the end and update rom_address.
-        
+        Token *newline = malloc_token();
+        lex_token(newline,"\n");
+        write_token(newline, output);
         (*rom_address)++;
-        // ========================================
+        free_token(newline);
+        // =====================
     }
 }
 
@@ -118,23 +121,19 @@ void lex_line(int *rom_address, SymbolTable *labels, const char *line, FILE *out
 // the symbol table with ROM address rom_address. The line may end with a comment (e.g. "(LOOP) // Loop here").
 void lex_label(const char *line, int rom_address, SymbolTable *labels) {
     // Your code here!
+    int n=0;
+    int length=0;
     char name[256]={0};
-    int k=0;
-    int index=0;
-    bool valid=false;
-    while(line[k]){
-        if(line[k]=='('){
-            valid=true;
-        }else if(line[k]==')'){
+    while(line[n]!='(' && line[n]){
+        if(line[n]==')'){
             break;
-        }else{
-            name[index]=line[k];
-            index++;
         }
-        k++;
+        name[length]=line[n];
+        length++;
+        n++;
     }
-    add_to_table(labels, name, int rom_address);
-    // ========================================
+    add_to_table(labels, name, rom_address);
+    // =================
 }
 
 // Reads the next token from a non-empty, non-label, non-comment line into dest, then returns the number of characters
@@ -162,31 +161,45 @@ int lex_token(Token *dest, const char *line) {
         dest->value.int_val = strtol(literal, NULL, 10);
     }
     // INSERT CODE: Fill in the rest of the cases for keywords and identifiers.
-    else {
-        char* keywords[]={"JGT", "JEQ", "JLT", "JGE", "JNE", "JLE", "JMP",
-    "SCREEN", "KBD", "SP", "LCL", "ARG", "THIS", "THAT",
-    "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15",
-    "KW_A", "KW_D", "KW_M"};
+    else if(!at_previous && (line[0]=='A'||line[0]=='M'||line[0]=='D')){
+        dest->type=KEYWORD;
+        switch(line[0]){
+            case 'A': dest->value.key_val=KW_A;break;
+            case 'M': dest->value.key_val=KW_M;break;
+            case 'D': dest->value.key_val=KW_D;break;
+        }
+        length=1;
+    }else{
+        // extract the word
         char* string=(char*)calloc(256,sizeof(char));
         int k=0;
-        while(line[k] && line[k]!=' '){
+        while(line[k] && line[k]!=' ' && line[k]!='\n' && line[k]!='\r'){
             string[k]=line[k];
             k++;
         }
-        dest->value.str_val=string;
-        bool flag=false;
-        for(int i=0;i<32;i++){
-            if(!strcmp(keywords[i],string)){
-                flag=true;
+        char* keywords[]={"JGT", "JEQ", "JLT", "JGE", "JNE", "JLE", "JMP",
+    "SCREEN", "KBD", "SP", "LCL", "ARG", "THIS", "THAT",
+    "R0", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9", "R10", "R11", "R12", "R13", "R14", "R15"};
+        int n=0;
+        bool iskey=false;
+        for(;n<30;n++){
+            if(!strcmp(keywords[n],string)){
+                iskey=true;
+                break;
             }
         }
-        if(flag){
+        if(iskey){
+            dest->value.key_val=n;
             dest->type=KEYWORD;
+            length=strlen(keywords[n]);
         }else{
+            length=strlen(string);
+            dest->value.str_val=calloc(length+1,sizeof(char));
+            strcpy(dest->value.str_val,string);
             dest->type=IDENTIFIER;
         }
     }
-    // ========================================
+    // =================
     at_previous = (line[0] == '@');
     return length;
 }
@@ -233,7 +246,7 @@ int get_next_instruction(Token *dest[], FILE *input) {
 void parse_instruction(const SymbolTable *labels, SymbolTable *variables, Token *instruction[], int length,
                        FILE *output) {
     char hack_instruction[18] = "";
-    if (1) // INSERT CODE: Fill in the right condition here
+    if (instruction[0]->type==SYMBOL && instruction[0]->value.char_val=='@') // INSERT CODE: Fill in the right condition here
         parse_a_instruction(labels, variables, instruction, hack_instruction);
     } else {
         parse_c_instruction(instruction, length, hack_instruction);
@@ -253,8 +266,31 @@ void parse_a_instruction(const SymbolTable *labels, SymbolTable *variables, Toke
         // INSERT CODE: If the token is a label, set value_to_load to the correct ROM address. Otherwise, it's a
         // variable; set value_to_load to the correct RAM address, first adding the variable to the symbol table if
         // needed.
+        int label_index=get_table_entry(labels,operand->value.str_val);
+        int var_index=get_table_entry(variables,operand->value.str_val);
+        if(label_index!=-1){
+            value_to_load=labels->tabel_array[label_index]->address;
+        }else if(var_index!=-1){
+            value_to_load=variables->tabel_array[var_index]->address;
+        }else{
+            int address=16+variables->table_length;
+            add_to_table(variables, operand->value.str_val, address);
+            value_to_load=address;
+        }
+        // ================
     } else {
         // INSERT CODE: If the token is a keyword, set value_to_load to the correct integer literal.
+        switch(operand->value.key_val){
+            case SCREEN: value_to_load=16384;break;
+            case KBD: value_to_load=24576;break;
+            case SP: value_to_load=0;break;
+            case LCL: value_to_load=1;break;
+            case ARG: value_to_load=2;break;
+            case THIS: value_to_load=3;break;
+            case THAT: value_to_load=4;break;
+            default: value_to_load=operand->value.key_val-R0;break;
+        }
+        // ====================
     }
     // Writes the address to dest, padding with zeroes.
     int_to_bin_string(value_to_load, dest);
@@ -279,11 +315,42 @@ void parse_c_instruction(Token *instruction[], int length, char *dest_str) {
 // Given a list of tokens of length [length] forming a C-instruction, copy the jump operand into jump_str.
 void parse_c_jump(Token *instruction[], int length, char *jump_str) {
     // INSERT CODE: Compute the C-instruction's jump operand and copy it into jump_str.
+    strcpy(jump_str,"000");
+    if(length >= 2 && instruction[length-2]->type == SYMBOL && instruction[length-2]->value.char_val == ';') {
+        switch(instruction[length-1]->value.key_val){
+            case JGT: strcpy(jump_str,"001");break;
+            case JEQ: strcpy(jump_str,"010");break;
+            case JLT: strcpy(jump_str,"100");break;
+            case JGE: strcpy(jump_str,"011");break;
+            case JNE: strcpy(jump_str,"101");break;
+            case JLE: strcpy(jump_str,"110");break;
+            case JMP: strcpy(jump_str,"111");break;
+            default: exit(1);break;
+        }
+    }
+    //======================
 }
 
 // Given a list of tokens of length [length] forming a C-instruction in assembly, copy the dest operand into dest_str.
 void parse_c_dest(Token *instruction[], int length, char *dest_str) {
     // INSERT CODE: Compute the C-instruction's dest operand and copy it into jump_str.
+    int dest_end = 0;
+    for(int i=0; i<length; i++) {
+        if (instruction[i]->type == SYMBOL && instruction[i]->value.char_val == '=') {
+            dest_end=i;
+            break;
+        }
+    }
+    strcpy(dest_str, "000");
+    for(int i=0;i<dest_end;i++){
+        switch(instruction[i]->value.key_val){
+            case KW_A: dest_str[0]='1';break;
+            case KW_M: dest_str[2]='1';break;
+            case KW_D: dest_str[1]='1';break;
+        }
+    }
+    
+    // ====================
 }
 
 // Given a list of tokens of length [length] forming a C-instruction, copy the comp operand into comp_str.
@@ -348,6 +415,13 @@ void parse_c_comp(Token *instruction[], int length, char *comp_str) {
             switch (instruction[comp_start]->value.char_val) {
                 case '!':
                     // INSERT CODE: Deal with !A, !D or !M.
+                    switch(instruction[comp_start+1]->value.key_val){
+                        case KW_A: strcpy(comp_str, "0110001");break;
+                        case KW_M: strcpy(comp_str, "1110001");break;
+                        case KW_D: strcpy(comp_str, "0001101");break;
+                        default: exit(1);
+                    }
+                    //===============
                     break;
                 case '-':
                     if (instruction[comp_start + 1]->type == INTEGER_LITERAL) { // Must be -1
@@ -401,6 +475,26 @@ void parse_c_comp(Token *instruction[], int length, char *comp_str) {
                     } break;
                 case '-':
                     // INSERT CODE: Deal with A-1, D-1, M-1, A-D, D-A, M-D or D-M,
+                    if (instruction[comp_start+2]->type == INTEGER_LITERAL) { // Must be A-1, D-1 or M-1
+                        switch(instruction[comp_start]->value.key_val) {
+                            case KW_A: strcpy(comp_str, "0110010"); break;
+                            case KW_D: strcpy(comp_str, "0001110"); break;
+                            case KW_M: strcpy(comp_str, "1110010"); break;
+                            default: exit(EXIT_FAILURE);
+                        }
+                        // Otherwise, the only options are A+D, D+A, M+D or D+M.
+                    } else if (operands_ad) {
+                        strcpy(comp_str, "0000111"); // A-D
+                    } else if (operands_da) {
+                        strcpy(comp_str, "0010011"); // D-A
+                    } else if (operands_md) {
+                        strcpy(comp_str, "1000111"); // M-D
+                    } else if (operands_dm) {
+                        strcpy(comp_str, "1010011"); // D-M
+                    } else {
+                        exit(EXIT_FAILURE);
+                    } break;
+                    // ===================
                     break;
                 case '&': // Must be A&D, D&A, M&D or D&M
                     if (operands_ad || operands_da) {
